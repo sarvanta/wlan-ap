@@ -14,6 +14,21 @@ let footer = file.read('all');
 file.close();
 
 function PO(id, english) {
+	let file = fs.open('string_table.json', 'r');
+	if( file ) {
+		let raw_table = file.read('all');
+		file.close();
+
+		try {
+			let table = json(raw_table);
+			if( table[id] ) {
+				return table[id];
+			}
+		} catch(e) {
+			warn("uspot: translation table invalid - " + e)
+		}
+	}
+	
 	return english;
 }
 
@@ -182,11 +197,11 @@ return {
 			interface: 'hotspot',
 			address: ctx.mac,
 		});
-		if (!uam && connected?.state) {
+		if (false && !uam && connected?.state) {
 			include('connected.uc', ctx);
 			return NULL;
 		}
-		if (!connected.data.ssid) {
+		if (false && !connected.data.ssid) {
 			let hapd = ctx.ubus.call('hostapd.' + connected.device, 'get_status');
 			ctx.ubus.call('spotfilter', 'client_set', {
 				interface: 'hotspot',
@@ -196,8 +211,8 @@ return {
 				}
 			});
 		}
-		ctx.device = connected.device;
-		ctx.ssid = connected.data.ssid;
+		//ctx.device = connected.device;
+		//ctx.ssid = connected.data.ssid;
 
 		// split QUERY_STRING
 		if (env.QUERY_STRING)

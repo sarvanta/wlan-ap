@@ -3,6 +3,6 @@ Content-Type: text/html
 
 {{ header }}
 
-<h1> Connected </h1>
+<h2> {{ PO('connected','Connected'); }} </h2>
 
 {{ footer }}

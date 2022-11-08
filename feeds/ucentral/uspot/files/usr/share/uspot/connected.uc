@@ -3,6 +3,6 @@ Content-Type: text/html
 
 {{ header }}
 
-<h1> you are already Connected </h1>
+<h2> {{  PO('already_connected','You are already connected') }}</h2> 
 
 {{ footer }}
