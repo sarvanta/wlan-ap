@@ -1,0 +1,23 @@
+From c20e9ec68ff9408ee064094da13395aba1d22f22 Mon Sep 17 00:00:00 2001
+From: John Crispin <john@phrozen.org>
+Date: Sat, 12 Nov 2022 15:12:10 +0100
+Subject: [PATCH] feeds.conf.default: use older version of luci
+
+Signed-off-by: John Crispin <john@phrozen.org>
+---
+ feeds.conf.default | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/feeds.conf.default b/feeds.conf.default
+index 1de500be4a..12b6176e01 100644
+--- a/feeds.conf.default
++++ b/feeds.conf.default
+@@ -1,4 +1,4 @@
+ src-git-full packages https://git.openwrt.org/feed/packages.git^dba8a0102e5965cad58a871335002e9c964b6719
+-src-git-full luci https://git.openwrt.org/project/luci.git^96ec0cd3ccfe954f13fd5a337efdd70374dde03f
++src-git-full luci https://github.com/openwrt/luci.git^69231a7d62a3b809fc5972071e691fb02730a10e
+ src-git-full routing https://git.openwrt.org/feed/routing.git^85028704f688a6768d3f10d5d3c10a799a121e0d
+ src-git-full telephony https://git.openwrt.org/feed/telephony.git^1d2031a5c82816483c51bca15649e2957fbe2bc2
+-- 
+2.25.1
+

@@ -50,3 +50,5 @@ uci commit
 /etc/init.d/uhttpd start
 
 reload_config
+
+/etc/init.d/network restart
