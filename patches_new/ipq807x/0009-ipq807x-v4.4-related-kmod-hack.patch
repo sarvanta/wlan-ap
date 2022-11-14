@@ -89,19 +89,6 @@ index d1e98b1fa1..656861c41c 100644
  
  $(eval $(if $(NF_KMOD),$(call nf_add,NFT_FIB,CONFIG_NFT_FIB, $(P_XT)nft_fib),))
  $(eval $(if $(NF_KMOD),$(call nf_add,NFT_FIB,CONFIG_NFT_FIB_INET, $(P_XT)nft_fib_inet),))
-diff --git a/package/kernel/linux/modules/netsupport.mk b/package/kernel/linux/modules/netsupport.mk
-index c38f22c99f..5470a2bba3 100644
---- a/package/kernel/linux/modules/netsupport.mk
-+++ b/package/kernel/linux/modules/netsupport.mk
-@@ -738,7 +738,7 @@ endef
- $(eval $(call KernelPackage,mppe))
- 
- 
--SCHED_MODULES_CORE = sch_ingress sch_hfsc sch_htb sch_tbf cls_basic cls_fw cls_route cls_flow cls_tcindex cls_u32 em_u32 act_gact act_mirred act_skbedit cls_matchall
-+SCHED_MODULES_CORE = sch_ingress sch_hfsc sch_htb sch_tbf cls_basic cls_fw cls_route cls_flow cls_tcindex cls_u32 em_u32 act_gact act_mirred act_skbedit
- SCHED_FILES_CORE = $(foreach mod,$(SCHED_MODULES_CORE),$(LINUX_DIR)/net/sched/$(mod).ko)
- 
- define KernelPackage/sched-core
 diff --git a/package/kernel/linux/modules/netfilter.mk b/package/kernel/linux/modules/netfilter.mk
 index 10157cac2f..c7e9d8d9d3 100644
 --- a/package/kernel/linux/modules/netfilter.mk
