@@ -3930,3 +3930,169 @@
  }
  EXPORT_SYMBOL_GPL(rtl8366_smi_probe);
  
+--- a/include/linux/rtl8367c.h	2023-03-21 16:55:56.804646036 +0800
++++ b/include/linux/rtl8367c.h	2023-03-20 08:47:42.029723051 +0800
+@@ -0,0 +1,163 @@
++#ifndef _RTL8367C_H
++#define _RTL8367C_H
++
++#define RTL8367C_DRIVER_NAME	"rtl8367C"
++
++enum rtl8367c_port_speed {
++	RTL8367_PORT_SPEED_10 = 0,
++	RTL8367_PORT_SPEED_100,
++	RTL8367_PORT_SPEED_1000,
++};
++
++struct rtl8367c_port_ability {
++	int force_mode;
++	int mstfault;
++    int mstmode;
++	int nway;
++	int txpause;
++	int rxpause;
++	int link;
++	int duplex;
++	enum rtl8367c_port_speed speed;
++};
++
++typedef struct  rtl8367c_rma_s{
++
++    u16 operation;
++    u16 discard_storm_filter;
++    u16 trap_priority;
++    u16 keep_format;
++    u16 vlan_leaky;
++    u16 portiso_leaky;
++
++}rtl8367c_rma_t;
++
++
++enum rtl8367c_extif_mode {
++	RTL8367C_EXT_DISABLE = 0,
++    RTL8367C_EXT_RGMII,
++    RTL8367C_EXT_MII_MAC,
++    RTL8367C_EXT_MII_PHY,
++    RTL8367C_EXT_TMII_MAC,
++    RTL8367C_EXT_TMII_PHY,
++    RTL8367C_EXT_GMII,
++    RTL8367C_EXT_RMII_MAC,
++    RTL8367C_EXT_RMII_PHY,
++    RTL8367C_EXT_SGMII,
++    RTL8367C_EXT_HSGMII,
++    RTL8367C_EXT_1000X_100FX,
++    RTL8367C_EXT_1000X,
++    RTL8367C_EXT_100FX,
++    RTL8367C_EXT_RGMII_2,
++    RTL8367C_EXT_MII_MAC_2,
++    RTL8367C_EXT_MII_PHY_2,
++    RTL8367C_EXT_TMII_MAC_2,
++    RTL8367C_EXT_TMII_PHY_2,
++    RTL8367C_EXT_RMII_MAC_2,
++    RTL8367C_EXT_RMII_PHY_2,
++};
++
++struct rtl8367c_extif_config {
++	unsigned int txdelay;
++	unsigned int rxdelay;
++	enum rtl8367c_extif_mode mode;
++	struct rtl8367c_port_ability ability;
++};
++
++struct rtl8367c_platform_data {
++	unsigned gpio_sda;
++	unsigned gpio_sck;
++	void (*hw_reset)(bool active);
++
++	struct rtl8367c_extif_config *extif0_cfg;
++	struct rtl8367c_extif_config *extif1_cfg;
++};
++
++typedef enum RTL8367C_MIBCOUNTER_E{
++
++    /* RX */
++    ifInOctets = 0,
++
++    dot3StatsFCSErrors,
++    dot3StatsSymbolErrors,
++    dot3InPauseFrames,
++    dot3ControlInUnknownOpcodes,
++
++    etherStatsFragments,
++    etherStatsJabbers,
++    ifInUcastPkts,
++    etherStatsDropEvents,
++
++    ifInMulticastPkts,
++    ifInBroadcastPkts,
++    inMldChecksumError,
++    inIgmpChecksumError,
++    inMldSpecificQuery,
++    inMldGeneralQuery,
++    inIgmpSpecificQuery,
++    inIgmpGeneralQuery,
++    inMldLeaves,
++    inIgmpLeaves,
++
++    /* TX/RX */
++    etherStatsOctets,
++
++    etherStatsUnderSizePkts,
++    etherOversizeStats,
++    etherStatsPkts64Octets,
++    etherStatsPkts65to127Octets,
++    etherStatsPkts128to255Octets,
++    etherStatsPkts256to511Octets,
++    etherStatsPkts512to1023Octets,
++    etherStatsPkts1024to1518Octets,
++
++    /* TX */
++    ifOutOctets,
++
++    dot3StatsSingleCollisionFrames,
++    dot3StatMultipleCollisionFrames,
++    dot3sDeferredTransmissions,
++    dot3StatsLateCollisions,
++    etherStatsCollisions,
++    dot3StatsExcessiveCollisions,
++    dot3OutPauseFrames,
++    ifOutDiscards,
++
++    /* ALE */
++    dot1dTpPortInDiscards,
++    ifOutUcastPkts,
++    ifOutMulticastPkts,
++    ifOutBroadcastPkts,
++    outOampduPkts,
++    inOampduPkts,
++
++    inIgmpJoinsSuccess,
++    inIgmpJoinsFail,
++    inMldJoinsSuccess,
++    inMldJoinsFail,
++    inReportSuppressionDrop,
++    inLeaveSuppressionDrop,
++    outIgmpReports,
++    outIgmpLeaves,
++    outIgmpGeneralQuery,
++    outIgmpSpecificQuery,
++    outMldReports,
++    outMldLeaves,
++    outMldGeneralQuery,
++    outMldSpecificQuery,
++    inKnownMulticastPkts,
++
++    /*Device only */
++    dot1dTpLearnedEntryDiscards,
++    RTL8367C_MIBS_NUMBER,
++
++}RTL8367C_MIBCOUNTER;
++
++typedef enum rtk_enable_e
++{
++    DISABLED = 0,
++    ENABLED,
++    RTK_ENABLE_END
++} rtk_enable_t;
++
++#endif /*  _RTL8367_H */
