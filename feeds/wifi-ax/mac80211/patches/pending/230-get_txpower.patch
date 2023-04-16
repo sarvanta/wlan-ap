@@ -95,9 +95,9 @@ Index: backports-20210222_001-4.4.60-b157d2276/drivers/net/wireless/ath/ath11k/c
  	u32 pktlog_filter;
  	u32 pktlog_mode;
 @@ -759,6 +757,11 @@ struct ath11k {
- 	u8 cfr_enabled;
- 	bool ani_enabled;
- 	enum wmi_phy_mode cfr_phymode;
+ #ifdef CONFIG_THERMAL
+ 	struct thermal_mitigation_params param;
+ #endif
 +
 +	/* fw pdev_stats can be requested by get_txpower mac ops too */
 +	struct list_head fw_stats_pdevs;

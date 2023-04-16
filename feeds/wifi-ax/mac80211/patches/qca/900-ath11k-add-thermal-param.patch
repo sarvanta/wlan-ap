@@ -1,0 +1,726 @@
+diff -Naurp a/drivers/net/wireless/ath/ath11k/core.h b/drivers/net/wireless/ath/ath11k/core.h
+--- a/drivers/net/wireless/ath/ath11k/core.h	2022-11-04 13:31:02.143659250 +0800
++++ b/drivers/net/wireless/ath/ath11k/core.h	2022-11-04 13:31:50.913809381 +0800
+@@ -759,6 +759,10 @@ struct ath11k {
+ 	u8 cfr_enabled;
+ 	bool ani_enabled;
+ 	enum wmi_phy_mode cfr_phymode;
++
++#ifdef CONFIG_THERMAL
++	struct thermal_mitigation_params param;
++#endif
+ };
+ 
+ struct ath11k_band_cap {
+diff -Naurp a/drivers/net/wireless/ath/ath11k/mac.c b/drivers/net/wireless/ath/ath11k/mac.c
+--- a/drivers/net/wireless/ath/ath11k/mac.c	2022-11-04 13:31:02.531644507 +0800
++++ b/drivers/net/wireless/ath/ath11k/mac.c	2022-11-04 13:31:50.921809078 +0800
+@@ -18,6 +18,7 @@
+ #include "debugfs_sta.h"
+ #include "vendor.h"
+ #include "nss.h"
++#include "thermal.h"
+ 
+ #define CHAN2G(_channel, _freq, _flags) { \
+ 	.band                   = NL80211_BAND_2GHZ, \
+@@ -6476,6 +6477,11 @@ static int ath11k_mac_op_start(struct ie
+ 		}
+ 	}
+ 
++	ret = ath11k_thermal_send_default_param(ar);
++	if (ret) {
++		ath11k_warn(ab, "failed to set default thermal param: %d\n", ret);
++	}
++
+ 	mutex_unlock(&ar->conf_mutex);
+ 
+ 	rcu_assign_pointer(ab->pdevs_active[ar->pdev_idx],
+diff -Naurp a/drivers/net/wireless/ath/ath11k/thermal.c b/drivers/net/wireless/ath/ath11k/thermal.c
+--- a/drivers/net/wireless/ath/ath11k/thermal.c	2021-08-02 17:56:18.000000000 +0800
++++ b/drivers/net/wireless/ath/ath11k/thermal.c	2022-11-04 13:46:04.927079043 +0800
+@@ -139,6 +139,7 @@ int ath11k_thermal_set_throttling(struct
+ 	param.enable = throttle_state ? 1 : 0;
+ 	param.dc = ATH11K_THERMAL_DEFAULT_DUTY_CYCLE;
+ 	param.dc_per_event = 0xFFFFFFFF;
++	param.num_thermal_conf = 1;
+ 
+ 	param.levelconf[0].tmplwm = ATH11K_THERMAL_TEMP_LOW_MARK;
+ 	param.levelconf[0].tmphwm = ATH11K_THERMAL_TEMP_HIGH_MARK;
+@@ -154,6 +155,493 @@ int ath11k_thermal_set_throttling(struct
+ 	return ret;
+ }
+ 
++#define to_cooling_device(_dev) \
++		container_of(_dev, struct thermal_cooling_device, device)
++
++static ssize_t
++thermal_mitigation_enable_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.enable;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_enable, S_IRUGO, thermal_mitigation_enable_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_dc_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.dc;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_dc, S_IRUGO, thermal_mitigation_dc_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_dc_per_event_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.dc_per_event;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_dc_per_event, S_IRUGO, thermal_mitigation_dc_per_event_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level0_tmplwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[0].tmplwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level0_tmplwm, S_IRUGO, thermal_mitigation_level0_tmplwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level0_tmphwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[0].tmphwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level0_tmphwm, S_IRUGO, thermal_mitigation_level0_tmphwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level0_dcoffpercent_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[0].dcoffpercent;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level0_dcoffpercent, S_IRUGO, thermal_mitigation_level0_dcoffpercent_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level1_tmplwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[1].tmplwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level1_tmplwm, S_IRUGO, thermal_mitigation_level1_tmplwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level1_tmphwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[1].tmphwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level1_tmphwm, S_IRUGO, thermal_mitigation_level1_tmphwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level1_dcoffpercent_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[1].dcoffpercent;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level1_dcoffpercent, S_IRUGO, thermal_mitigation_level1_dcoffpercent_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level2_tmplwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[2].tmplwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level2_tmplwm, S_IRUGO, thermal_mitigation_level2_tmplwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level2_tmphwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[2].tmphwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level2_tmphwm, S_IRUGO, thermal_mitigation_level2_tmphwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level2_dcoffpercent_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[2].dcoffpercent;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level2_dcoffpercent, S_IRUGO, thermal_mitigation_level2_dcoffpercent_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level3_tmplwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[3].tmplwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level3_tmplwm, S_IRUGO, thermal_mitigation_level3_tmplwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level3_tmphwm_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[3].tmphwm;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level3_tmphwm, S_IRUGO, thermal_mitigation_level3_tmphwm_show,
++		NULL);
++
++static ssize_t
++thermal_mitigation_level3_dcoffpercent_show(struct device *dev,
++					struct device_attribute *devattr,
++					char *buf)
++{
++	struct thermal_cooling_device *cdev = to_cooling_device(dev);
++	struct ath11k *ar = cdev->devdata;
++	u32 value;
++
++	mutex_lock(&ar->conf_mutex);
++	value = ar->param.levelconf[3].dcoffpercent;
++	mutex_unlock(&ar->conf_mutex);
++
++	return sprintf(buf, "%d\n", value);
++}
++static DEVICE_ATTR(thermal_mitigation_level3_dcoffpercent, S_IRUGO, thermal_mitigation_level3_dcoffpercent_show,
++		NULL);
++
++static struct device_attribute *dev_thermal_mitigation_attrs[] = {
++	&dev_attr_thermal_mitigation_enable,
++	&dev_attr_thermal_mitigation_dc,
++	&dev_attr_thermal_mitigation_dc_per_event,
++	&dev_attr_thermal_mitigation_level0_tmplwm,
++	&dev_attr_thermal_mitigation_level0_tmphwm,
++	&dev_attr_thermal_mitigation_level0_dcoffpercent,
++	&dev_attr_thermal_mitigation_level1_tmplwm,
++	&dev_attr_thermal_mitigation_level1_tmphwm,
++	&dev_attr_thermal_mitigation_level1_dcoffpercent,
++	&dev_attr_thermal_mitigation_level2_tmplwm,
++	&dev_attr_thermal_mitigation_level2_tmphwm,
++	&dev_attr_thermal_mitigation_level2_dcoffpercent,
++	&dev_attr_thermal_mitigation_level3_tmplwm,
++	&dev_attr_thermal_mitigation_level3_tmphwm,
++	&dev_attr_thermal_mitigation_level3_dcoffpercent,
++};
++
++static int create_thermal_mitigation_attr(struct device *dev)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(dev_thermal_mitigation_attrs); i++) {
++		int ret;
++		struct device_attribute *dev_attr = dev_thermal_mitigation_attrs[i];
++
++		ret = device_create_file(dev, dev_attr);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++static void destroy_thermal_mitigation_attr(struct device *dev)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(dev_thermal_mitigation_attrs); i++) {
++		struct device_attribute *dev_attr = dev_thermal_mitigation_attrs[i];
++
++		device_remove_file(dev, dev_attr);
++	}
++}
++
++static void ath11k_thermal_set_default_param(struct ath11k *ar)
++{
++	struct ath11k_base *sc = ar->ab;
++	int machine_is_eap104 = of_machine_is_compatible("edgecore,eap104");
++
++	if (!machine_is_eap104) {
++		return;
++	}
++
++	mutex_lock(&ar->conf_mutex);
++
++	memset(&ar->param, 0, sizeof(ar->param));
++
++	ar->param.pdev_id = ar->pdev->pdev_id;
++	ar->param.enable = 1;
++	ar->param.dc = ATH11K_THERMAL_CONFIG_DEFAULT_DUTY_CYCLE;
++	ar->param.dc_per_event = ATH11K_THERMAL_WMI_EVENT_DC;
++	ar->param.num_thermal_conf = 4;
++
++	/* thermal level / zone 0 config */
++	if (sc->hw_rev == ATH11K_HW_QCN9074_HW10) {
++		ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0_QCN9000;
++		ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0_QCN9000;
++	} else if (sc->hw_rev == ATH11K_HW_QCN6122) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0_QCN6122_EAP104;
++			ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0_QCN6122_EAP104;
++			ar->param.levelconf[0].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF0_QCN6122_EAP104;
++		} else {
++			ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0_QCN9000;
++			ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0_QCN9000;
++		}
++	} else if (sc->hw_rev == ATH11K_HW_IPQ5018) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0_QCA5018_EAP104;
++			ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0_QCA5018_EAP104;
++			ar->param.levelconf[0].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF0_QCA5018_EAP104;
++		} else {
++			ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0_QCA5018;
++			ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0_QCA5018;
++		}
++	} else {
++		ar->param.levelconf[0].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM0;
++		ar->param.levelconf[0].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM0;
++	}
++	if (!machine_is_eap104) {
++		ar->param.levelconf[0].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF0;
++	}
++	ar->param.levelconf[0].priority = ATH11K_THERMAL_ALL_UNICAST_DATA_QUEUES;
++
++	/* thermal level / zone 1 config */
++	if (sc->hw_rev == ATH11K_HW_QCN9074_HW10) {
++		ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1_QCN9000;
++		ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1_QCN9000;
++	} else if (sc->hw_rev == ATH11K_HW_QCN6122) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1_QCN6122_EAP104;
++			ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1_QCN6122_EAP104;
++			ar->param.levelconf[1].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF1_QCN6122_EAP104;
++		} else {
++			ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1_QCN9000;
++			ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1_QCN9000;
++		}
++	} else if (sc->hw_rev == ATH11K_HW_IPQ5018) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1_QCA5018_EAP104;
++			ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1_QCA5018_EAP104;
++			ar->param.levelconf[1].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF1_QCA5018_EAP104;
++		} else {
++			ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1_QCA5018;
++			ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1_QCA5018;
++		}
++	} else {
++		ar->param.levelconf[1].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM1;
++		ar->param.levelconf[1].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM1;
++	}
++	if (!machine_is_eap104) {
++		ar->param.levelconf[1].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF1;
++	}
++	ar->param.levelconf[1].priority = ATH11K_THERMAL_ALL_UNICAST_DATA_QUEUES;
++
++	/* thermal level / zone 2 config */
++	if (sc->hw_rev == ATH11K_HW_QCN9074_HW10) {
++		ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2_QCN9000;
++		ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2_QCN9000;
++	} else if (sc->hw_rev == ATH11K_HW_QCN6122) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2_QCN6122_EAP104;
++			ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2_QCN6122_EAP104;
++			ar->param.levelconf[2].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF2_QCN6122_EAP104;
++		} else {
++			ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2_QCN9000;
++			ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2_QCN9000;
++		}
++	} else if (sc->hw_rev == ATH11K_HW_IPQ5018) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2_QCA5018_EAP104;
++			ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2_QCA5018_EAP104;
++			ar->param.levelconf[2].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF2_QCA5018_EAP104;
++		} else {
++			ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2_QCA5018;
++			ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2_QCA5018;
++		}
++	} else {
++		ar->param.levelconf[2].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM2;
++		ar->param.levelconf[2].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM2;
++	}
++	if (!machine_is_eap104) {
++		ar->param.levelconf[2].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF2;
++	}
++	ar->param.levelconf[2].priority = ATH11K_THERMAL_ALL_UNICAST_DATA_QUEUES;
++
++	/* thermal level / zone 3 config */
++	if (sc->hw_rev == ATH11K_HW_QCN9074_HW10) {
++		ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3_QCN9000;
++		ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3_QCN9000;
++	} else if (sc->hw_rev == ATH11K_HW_QCN6122) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3_QCN6122_EAP104;
++			ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3_QCN6122_EAP104;
++			ar->param.levelconf[3].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF3_QCN6122_EAP104;
++		} else {
++			ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3_QCN9000;
++			ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3_QCN9000;
++		}
++	} else if (sc->hw_rev == ATH11K_HW_IPQ5018) {
++		if (machine_is_eap104) {
++			ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3_QCA5018_EAP104;
++			ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3_QCA5018_EAP104;
++			ar->param.levelconf[3].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF3_QCA5018_EAP104;
++		} else {
++			ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3_QCA5018;
++			ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3_QCA5018;
++		}
++	} else {
++		ar->param.levelconf[3].tmplwm = ATH11K_THERMAL_CONFIG_TMPLWM3;
++		ar->param.levelconf[3].tmphwm = ATH11K_THERMAL_CONFIG_TMPHWM3;
++	}
++
++	if (!machine_is_eap104) {
++		ar->param.levelconf[3].dcoffpercent = ATH11K_THERMAL_CONFIG_DCOFF3;
++	}
++	ar->param.levelconf[3].priority = ATH11K_THERMAL_ALL_UNICAST_DATA_QUEUES;
++
++	mutex_unlock(&ar->conf_mutex);
++	return;
++}
++
++int ath11k_thermal_send_default_param(struct ath11k *ar)
++{
++	struct ath11k_base *sc = ar->ab;
++	int ret = 0;
++
++	if (!of_machine_is_compatible("edgecore,eap104")) {
++		return 0;
++	}
++
++	if (ar->state != ATH11K_STATE_ON) {
++		return 0;
++	}
++
++	ret = ath11k_wmi_send_thermal_mitigation_param_cmd(ar, &ar->param);
++	if (ret) {
++		ath11k_warn(sc, "failed to send default thermal mitigation ret %d\n",
++			    ret);
++	}
++	return ret;
++}
++
+ int ath11k_thermal_register(struct ath11k_base *sc)
+ {
+ 	struct thermal_cooling_device *cdev;
+@@ -187,6 +675,11 @@ int ath11k_thermal_register(struct ath11
+ 			goto err_thermal_destroy;
+ 		}
+ 
++		if (of_machine_is_compatible("edgecore,eap104")) {
++			ath11k_thermal_set_default_param(ar);
++			create_thermal_mitigation_attr(&cdev->device);
++		}
++
+ 		if (!IS_REACHABLE(CONFIG_HWMON))
+ 			return 0;
+ 
+@@ -221,6 +714,8 @@ void ath11k_thermal_unregister(struct at
+ 			continue;
+ 
+ 		sysfs_remove_link(&ar->hw->wiphy->dev.kobj, "cooling_device");
++		if (of_machine_is_compatible("edgecore,eap104"))
++			destroy_thermal_mitigation_attr(&ar->thermal.cdev->device);
+ 		thermal_cooling_device_unregister(ar->thermal.cdev);
+ 	}
+ }
+diff -Naurp a/drivers/net/wireless/ath/ath11k/thermal.h b/drivers/net/wireless/ath/ath11k/thermal.h
+--- a/drivers/net/wireless/ath/ath11k/thermal.h	2021-08-02 17:56:18.000000000 +0800
++++ b/drivers/net/wireless/ath/ath11k/thermal.h	2022-11-04 13:41:58.590818145 +0800
+@@ -13,6 +13,79 @@
+ #define ATH11K_HWMON_NAME_LEN           15
+ #define ATH11K_THERMAL_SYNC_TIMEOUT_HZ (5 * HZ)
+ 
++#define ATH11K_THERMAL_ALL_UNICAST_DATA_QUEUES             7
++#define ATH11K_THERMAL_MINUS_INFINITE                     -100
++#define ATH11K_THERMAL_MAX_TEMPERATURE                     150
++#define ATH11K_THERMAL_MINUS_INFINITE_QCN9000             -100
++#define ATH11K_THERMAL_MAX_TEMPERATURE_QCN9000             120
++
++#define ATH11K_THERMAL_POLICY_QUEUE_PAUSE                  0x01
++
++/* Default thermal mitigation config defines*/
++#define ATH11K_THERMAL_CONFIG_DEFAULT_DUTY_CYCLE           100
++#define ATH11K_THERMAL_WMI_EVENT_DC                        2
++#define ATH11K_THERMAL_CONFIG_TMPLWM0                      ATH11K_THERMAL_MINUS_INFINITE
++#define ATH11K_THERMAL_CONFIG_TMPLWM1                      100
++#define ATH11K_THERMAL_CONFIG_TMPLWM2                      110
++#define ATH11K_THERMAL_CONFIG_TMPLWM3                      125
++#define ATH11K_THERMAL_CONFIG_TMPHWM0                      110
++#define ATH11K_THERMAL_CONFIG_TMPHWM1                      120
++#define ATH11K_THERMAL_CONFIG_TMPHWM2                      135
++#define ATH11K_THERMAL_CONFIG_TMPHWM3                      ATH11K_THERMAL_MAX_TEMPERATURE
++#define ATH11K_THERMAL_CONFIG_DCOFF0                       0
++#define ATH11K_THERMAL_CONFIG_DCOFF1                       50
++#define ATH11K_THERMAL_CONFIG_DCOFF2                       90
++#define ATH11K_THERMAL_CONFIG_DCOFF3                       100
++
++/* Default thermal mitigation config defines for QCN9000 */
++#define ATH11K_THERMAL_CONFIG_TMPLWM0_QCN9000                     ATH11K_THERMAL_MINUS_INFINITE_QCN9000
++#define ATH11K_THERMAL_CONFIG_TMPLWM1_QCN9000                     95
++#define ATH11K_THERMAL_CONFIG_TMPLWM2_QCN9000                     100
++#define ATH11K_THERMAL_CONFIG_TMPLWM3_QCN9000                     105
++#define ATH11K_THERMAL_CONFIG_TMPHWM0_QCN9000                     100
++#define ATH11K_THERMAL_CONFIG_TMPHWM1_QCN9000                     105
++#define ATH11K_THERMAL_CONFIG_TMPHWM2_QCN9000                     110
++#define ATH11K_THERMAL_CONFIG_TMPHWM3_QCN9000                     ATH11K_THERMAL_MAX_TEMPERATURE_QCN9000
++
++/* Default thermal mitigation config defines for QCA5018 */
++#define ATH11K_THERMAL_CONFIG_TMPLWM0_QCA5018                     ATH11K_THERMAL_MINUS_INFINITE_QCN9000
++#define ATH11K_THERMAL_CONFIG_TMPLWM1_QCA5018                     95
++#define ATH11K_THERMAL_CONFIG_TMPLWM2_QCA5018                     100
++#define ATH11K_THERMAL_CONFIG_TMPLWM3_QCA5018                     105
++#define ATH11K_THERMAL_CONFIG_TMPHWM0_QCA5018                     105
++#define ATH11K_THERMAL_CONFIG_TMPHWM1_QCA5018                     110
++#define ATH11K_THERMAL_CONFIG_TMPHWM2_QCA5018                     115
++#define ATH11K_THERMAL_CONFIG_TMPHWM3_QCA5018                     115
++
++/* Default thermal mitigation config defines for EAP104 */
++/* 5G qsdk wifi1 */
++#define ATH11K_THERMAL_CONFIG_TMPLWM0_QCN6122_EAP104              ATH11K_THERMAL_MINUS_INFINITE_QCN9000
++#define ATH11K_THERMAL_CONFIG_TMPHWM0_QCN6122_EAP104              98
++#define ATH11K_THERMAL_CONFIG_TMPLWM1_QCN6122_EAP104              90
++#define ATH11K_THERMAL_CONFIG_TMPHWM1_QCN6122_EAP104              101
++#define ATH11K_THERMAL_CONFIG_TMPLWM2_QCN6122_EAP104              99
++#define ATH11K_THERMAL_CONFIG_TMPHWM2_QCN6122_EAP104              104
++#define ATH11K_THERMAL_CONFIG_TMPLWM3_QCN6122_EAP104              102
++#define ATH11K_THERMAL_CONFIG_TMPHWM3_QCN6122_EAP104              ATH11K_THERMAL_MAX_TEMPERATURE_QCN9000
++#define ATH11K_THERMAL_CONFIG_DCOFF0_QCN6122_EAP104               0
++#define ATH11K_THERMAL_CONFIG_DCOFF1_QCN6122_EAP104               99
++#define ATH11K_THERMAL_CONFIG_DCOFF2_QCN6122_EAP104               99
++#define ATH11K_THERMAL_CONFIG_DCOFF3_QCN6122_EAP104               99
++
++/* 2.4G qsdk wifi0 */
++#define ATH11K_THERMAL_CONFIG_TMPLWM0_QCA5018_EAP104              ATH11K_THERMAL_MINUS_INFINITE_QCN9000
++#define ATH11K_THERMAL_CONFIG_TMPHWM0_QCA5018_EAP104              100
++#define ATH11K_THERMAL_CONFIG_TMPLWM1_QCA5018_EAP104              95
++#define ATH11K_THERMAL_CONFIG_TMPHWM1_QCA5018_EAP104              107
++#define ATH11K_THERMAL_CONFIG_TMPLWM2_QCA5018_EAP104              102
++#define ATH11K_THERMAL_CONFIG_TMPHWM2_QCA5018_EAP104              109
++#define ATH11K_THERMAL_CONFIG_TMPLWM3_QCA5018_EAP104              105
++#define ATH11K_THERMAL_CONFIG_TMPHWM3_QCA5018_EAP104              ATH11K_THERMAL_MAX_TEMPERATURE_QCN9000
++#define ATH11K_THERMAL_CONFIG_DCOFF0_QCA5018_EAP104               0
++#define ATH11K_THERMAL_CONFIG_DCOFF1_QCA5018_EAP104               50
++#define ATH11K_THERMAL_CONFIG_DCOFF2_QCA5018_EAP104               95
++#define ATH11K_THERMAL_CONFIG_DCOFF3_QCA5018_EAP104               99
++
+ struct ath11k_thermal {
+ 	struct thermal_cooling_device *cdev;
+ 	struct completion wmi_sync;
+@@ -30,6 +103,7 @@ int ath11k_thermal_register(struct ath11
+ void ath11k_thermal_unregister(struct ath11k_base *sc);
+ int ath11k_thermal_set_throttling(struct ath11k *ar, u32 throttle_state);
+ void ath11k_thermal_event_temperature(struct ath11k *ar, int temperature);
++int ath11k_thermal_send_default_param(struct ath11k *ar);
+ #else
+ static inline int ath11k_thermal_register(struct ath11k_base *sc)
+ {
+@@ -50,5 +124,9 @@ static inline void ath11k_thermal_event_
+ {
+ }
+ 
++static inline int ath11k_thermal_send_default_param(struct ath11k *ar)
++{
++	return 0;
++}
+ #endif
+ #endif /* _ATH11K_THERMAL_ */
+diff -Naurp a/drivers/net/wireless/ath/ath11k/wmi.c b/drivers/net/wireless/ath/ath11k/wmi.c
+--- a/drivers/net/wireless/ath/ath11k/wmi.c	2022-11-04 13:31:02.527644658 +0800
++++ b/drivers/net/wireless/ath/ath11k/wmi.c	2022-11-04 13:31:51.017805442 +0800
+@@ -3483,7 +3483,7 @@ ath11k_wmi_send_thermal_mitigation_param
+ 	int i, ret, len;
+ 
+ 	len = sizeof(*cmd) + TLV_HDR_SIZE +
+-	      THERMAL_LEVELS * sizeof(struct wmi_therm_throt_level_config_info);
++	      param->num_thermal_conf * sizeof(struct wmi_therm_throt_level_config_info);
+ 
+ 	skb = ath11k_wmi_alloc_skb(wmi->wmi_ab, len);
+ 	if (!skb)
+@@ -3498,7 +3498,7 @@ ath11k_wmi_send_thermal_mitigation_param
+ 	cmd->enable = param->enable;
+ 	cmd->dc = param->dc;
+ 	cmd->dc_per_event = param->dc_per_event;
+-	cmd->therm_throt_levels = THERMAL_LEVELS;
++	cmd->therm_throt_levels = param->num_thermal_conf;
+ 
+ 	tlv = (struct wmi_tlv *)(skb->data + sizeof(*cmd));
+ 	tlv->header = FIELD_PREP(WMI_TLV_TAG, WMI_TAG_ARRAY_STRUCT) |
+@@ -3509,7 +3509,7 @@ ath11k_wmi_send_thermal_mitigation_param
+ 	lvl_conf = (struct wmi_therm_throt_level_config_info *)(skb->data +
+ 								sizeof(*cmd) +
+ 								TLV_HDR_SIZE);
+-	for (i = 0; i < THERMAL_LEVELS; i++) {
++	for (i = 0; i < param->num_thermal_conf; i++) {
+ 		lvl_conf->tlv_header =
+ 			FIELD_PREP(WMI_TLV_TAG, WMI_TAG_THERM_THROT_LEVEL_CONFIG_INFO) |
+ 			FIELD_PREP(WMI_TLV_LEN, sizeof(*lvl_conf) - TLV_HDR_SIZE);
+@@ -3530,7 +3530,7 @@ ath11k_wmi_send_thermal_mitigation_param
+ 	ath11k_dbg(ar->ab, ATH11K_DBG_WMI,
+ 		   "WMI vdev set thermal throt pdev_id %d enable %d dc %d dc_per_event %x levels %d\n",
+ 		   ar->pdev->pdev_id, param->enable, param->dc,
+-		   param->dc_per_event, THERMAL_LEVELS);
++		   param->dc_per_event, param->num_thermal_conf);
+ 
+ 	return ret;
+ }
+diff -Naurp a/drivers/net/wireless/ath/ath11k/wmi.h b/drivers/net/wireless/ath/ath11k/wmi.h
+--- a/drivers/net/wireless/ath/ath11k/wmi.h	2022-11-04 13:31:01.555681593 +0800
++++ b/drivers/net/wireless/ath/ath11k/wmi.h	2022-11-04 13:31:51.041804534 +0800
+@@ -4164,7 +4164,7 @@ struct wmi_init_country_cmd {
+ 	} cc_info;
+ } __packed;
+ 
+-#define THERMAL_LEVELS  1
++#define THERMAL_LEVELS  4
+ struct tt_level_config {
+ 	u32 tmplwm;
+ 	u32 tmphwm;
+@@ -4177,8 +4177,9 @@ struct thermal_mitigation_params {
+ 	u32 enable;
+ 	u32 dc;
+ 	u32 dc_per_event;
++	u8 num_thermal_conf;
+ 	struct tt_level_config levelconf[THERMAL_LEVELS];
+-};
++} __packed;
+ 
+ struct wmi_therm_throt_config_request_cmd {
+ 	u32 tlv_header;
