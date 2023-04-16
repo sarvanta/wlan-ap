@@ -1,4 +1,6 @@
 #!/bin/sh
+. /lib/functions.sh
+. /lib/functions/system.sh
 . /lib/netifd/netifd-wireless.sh
 . /lib/netifd/hostapd.sh
 
@@ -521,8 +523,29 @@ EOF
 mac80211_get_addr() {
 	local phy="$1"
 	local idx="$(($2 + 1))"
+	local board=$(board_name)
 
-	head -n $idx /sys/class/ieee80211/${phy}/addresses | tail -n1
+	case $board in
+	edgecore,eap104)
+		echo "$(get_wifi_macaddr "${phy}")"
+		;;
+	*)
+		head -n $idx /sys/class/ieee80211/${phy}/addresses | tail -n1
+		;;
+	esac
+}
+
+get_wifi_macaddr() {
+	local eth=$(cat /sys/class/net/eth0/address)
+
+	case "$1" in
+	wifi0|phy0)
+		echo $(macaddr_add $eth 2)
+	;;
+	wifi1|phy1)
+		echo $(macaddr_add $eth 3)
+	;;
+	esac
 }
 
 mac80211_generate_mac() {
@@ -532,6 +555,8 @@ mac80211_generate_mac() {
 
 	local ref="$(cat /sys/class/ieee80211/${phy}/macaddress)"
 	local mask="$(cat /sys/class/ieee80211/${phy}/address_mask)"
+
+	local board=$(board_name)
 
 	[ "$mask" = "00:00:00:00:00:00" -a "$multiple_bssid" != 1 ] && {
 		mask="ff:ff:ff:ff:ff:ff";
@@ -549,6 +574,13 @@ mac80211_generate_mac() {
 
 	local mask1=$1
 	local mask6=$6
+
+	case $board in
+	edgecore,eap104)
+		local phymac="$(get_wifi_macaddr "${phy}")"
+		[ -n "${phymac}" ] && ref="${phymac}"
+	;;
+	esac
 
 	local oIFS="$IFS"; IFS=":"; set -- $ref; IFS="$oIFS"
 	[ "$multiple_bssid" -eq 1 ] && {
