@@ -14,6 +14,7 @@
 		{
 			"name": "WAN",
 			"role": "upstream",
+			"services": [ "dhcp-relay" ],
 			"ethernet": [
 				{
 					"select-ports": [
@@ -23,7 +24,30 @@
 			],
 			"ipv4": {
 				"addressing": "dynamic"
-			}
+			},
+			"ssids": [
+				{
+					"name": "Maverick",
+					"wifi-bands": [
+						"2G"
+					],
+					"bss-mode": "ap",
+					"encryption": {
+						"proto": "psk2",
+						"key": "OpenWifi",
+						"ieee80211w": "optional"
+					},
+					"multi-psk": [
+						{
+							"key": "aaaaaaaa",
+							"vlan-id": 100
+						},
+						{
+							"key": "bbbbbbbb"
+						}
+					]
+				}
+			]
 		},
 		{
 			"name": "WAN10",
@@ -44,7 +68,7 @@
 			},
 			"ssids": [
 				{
-					"name": "Maverick",
+					"name": "Maverick10",
 					"wifi-bands": [
 						"2G"
 					],
@@ -85,7 +109,15 @@
 		},
 		"dhcp-relay": {
 			"select-ports": [ "WAN*" ],
-			"relay-server": "192.168.178.1"
+			"vlans": [
+				{
+					"relay-server": "192.168.178.1",
+					"vlan": 10
+				}, {
+					"relay-server": "192.168.178.1",
+					"vlan": 100
+				}
+			]
 		}
 	}
 }
